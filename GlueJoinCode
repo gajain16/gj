@@ -1,0 +1,33 @@
+import sys
+from awsglue.transforms import *
+from awsglue.utils import getResolvedOptions
+from pyspark.context import SparkContext
+from awsglue.context import GlueContext
+from awsglue.job import Job
+from pyspark.sql.functions import col
+from pyspark.sql import SQLContext 
+from awsglue.dynamicframe import DynamicFrame
+## @params: [JOB_NAME]
+#args = getResolvedOptions(sys.argv, ['JOB_NAME'])
+
+#sc = SparkContext()
+glueContext = GlueContext(sc)
+spark = glueContext.spark_session
+job = Job(glueContext)
+#job.init("SagemakerGlueJob")
+
+datasource11 = glueContext.create_dynamic_frame.from_catalog(database = "s3prodrawbucket", table_name = "ods_renewal_dtls", transformation_ctx = "datasource0")
+datasource22 = glueContext.create_dynamic_frame.from_catalog(database = "s3prodrawbucket", table_name = "ODS_RENEWAL_DTLS_CDC_1", transformation_ctx = "datasource1")
+sdf11=datasource11.toDF()
+sdf22=datasource22.toDF()
+
+sdf11.createOrReplaceTempView("ods_renewals_dtls_full_view")
+sdf22.createOrReplaceTempView("ods_renewals_dtls_cdc_view")
+
+JoinDataDF = spark.sql("select A.R_POLICY_REF R_POLICY_REF_OLD,B.* FROM ods_renewals_dtls_full_view a right outer join ods_renewals_dtls_cdc_view b ON a.R_POLICY_REF = b.R_POLICY_REF ") 
+
+JoinDataDF.createOrReplaceTempView("JoinDataDF_VIEW")
+
+Gluejoindf = DynamicFrame.fromDF(JoinDataDF, glueContext, "append")
+
+datasink2 = glueContext.write_dynamic_frame.from_options(frame = Gluejoindf, connection_type = "s3", connection_options = {"path": "s3://edl-landing-bucket/bagic_test/ODS_RENEWALS_DTLS"}, format = "parquet", transformation_ctx = "datasink2")
